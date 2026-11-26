@@ -34,7 +34,7 @@ Volumes, containers and tagged images are never deleted. The code calls no other
 
 ## Disk alert
 - Hourly check. Each watched disk is an empty probe folder on that disk, mounted read-only, measured with `shutil.disk_usage`. The container cannot read other files on the disks.
-- Two disks: `/disks/system` (host `/DATA/.diskprobe`) and `/disks/backup` (host `/media/HDD320-1/.diskprobe`). Host paths are written in `docker-compose.yml`, because Docker mounts them before the app starts.
+- `/disks/system` (host `/DATA/.diskprobe`) is required. `/disks/backup` is optional and commented out in `docker-compose.yml`; when not mounted it is not shown and sends no alert. Host paths are written there because Docker mounts them before the app starts.
 - Alert at 85% used or more (setting), at most once per 7 days per disk. Falling below the threshold resets it.
 - A disk that cannot be read shows as "unreadable" on the page and is reported in the same alert email.
 - If the probe folder is not really on that disk (disk unmounted), the figures are those of the parent disk. The deploy steps say to check them once.

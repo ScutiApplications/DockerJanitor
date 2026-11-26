@@ -18,18 +18,18 @@ scp "$env:TEMP\dockerjanitor.tar.gz" lex@scutiserver1.local:/tmp/
 mkdir -p /media/ZimaOS-HD/Apps/Applications/DockerJanitor
 cd /media/ZimaOS-HD/Apps/Applications/DockerJanitor
 tar -xzf /tmp/dockerjanitor.tar.gz
-mkdir -p /DATA/.diskprobe /media/HDD320-1/.diskprobe
+mkdir -p /DATA/.diskprobe
 docker compose up -d --build
 docker compose logs
 ```
 
-Check once that each probe folder is on its own disk (the two lines must show different filesystems):
+Optional second disk (for example a backup disk): create `.diskprobe` on it, remove the `#` from its line in `docker-compose.yml`, set the path, and start again. Without that line the disk is not shown and sends no warning.
+
+Check once that each probe folder is on its own disk (the lines must show different filesystems):
 
 ```bash
-df -h /DATA/.diskprobe /media/HDD320-1/.diskprobe
+df -h /DATA/.diskprobe /media/<backup-disk>/.diskprobe
 ```
-
-Other disk paths: edit the two probe lines in `docker-compose.yml`.
 
 ## 3. First setup (in the browser)
 

@@ -13,7 +13,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock  # root-equivalent: keep this service on the LAN
       # Empty probe folders: they show how full each disk is without exposing its files.
       - /DATA/.diskprobe:/disks/system:ro
-      - /media/HDD320-1/.diskprobe:/disks/backup:ro
+      # Optional second disk. Create the folder on it first, then remove the "#" and set the path:
+      # - /media/HDD320-1/.diskprobe:/disks/backup:ro
 
 volumes:
   dockerjanitor_data:
