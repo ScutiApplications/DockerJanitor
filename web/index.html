@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DockerJanitor</title>
+<style>
+  :root { color-scheme: light dark; --bg: light-dark(#f4f4f5, #18181b); --card: light-dark(#fff, #232326);
+    --text: light-dark(#18181b, #ededf0); --muted: light-dark(#52525b, #b4b4bd); --line: light-dark(#85858f, #71717a);
+    --accent: light-dark(#a8430c, #ff9a5c); --on-accent: light-dark(#fff, #1c0d04); --bad: light-dark(#a81818, #ff8f8f); }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 52rem; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  [hidden] { display: none !important; }
+  h1 { font-size: 1.4rem; margin: 0; }
+  h2 { font-size: 1.05rem; margin: 0 0 8px; }
+  section, form.card { background: var(--card); border-radius: 10px; padding: 16px; }
+  p { margin: 4px 0; }
+  .muted { color: var(--muted); }
+  .bad { color: var(--bad); }
+  label { display: grid; gap: 4px; }
+  label.check { display: flex; gap: 8px; align-items: center; min-height: 40px; }
+  input, select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; min-height: 40px; width: 100%; }
+  input[type=checkbox] { width: 18px; min-height: 18px; accent-color: var(--accent); }
+  [aria-invalid=true] { border-color: var(--bad); }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); margin-bottom: 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-top: 12px; }
+  .row input { width: 6rem; }
+  button { font: inherit; font-weight: 600; min-height: 40px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; position: relative; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  button:disabled { cursor: default; opacity: .6; }
+  button[aria-busy=true] { color: transparent; }
+  button[aria-busy=true]::after { content: ""; position: absolute; inset: 0; margin: auto; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--text); border-right-color: transparent; animation: spin .8s linear infinite; }
+  button.primary[aria-busy=true]::after { border-color: var(--on-accent); border-right-color: transparent; }
+  @keyframes spin { to { transform: rotate(1turn); } }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  meter { width: 100%; height: 14px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  dialog { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 10px; max-width: 26rem; }
+  dialog::backdrop { background: rgb(0 0 0 / .5); }
+</style>
+</head>
+<body>
+<main>
+  <h1>DockerJanitor</h1>
+  <p id="message" role="status"></p>
+
+  <form class="card" id="setup" hidden>
+    <h2>First setup</h2>
+    <p class="muted">Get the setup code on the server with <code>docker compose logs</code>.</p>
+    <div class="grid">
+      <label>Setup code <input name="code" required autocomplete="off" spellcheck="false"></label>
+      <label>New admin password (10 characters or more) <input name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password"></label>
+    </div>
+    <button class="primary">Set password</button>
+  </form>
+
+  <form class="card" id="login" hidden>
+    <h2>Sign in</h2>
+    <div class="grid"><label>Admin password <input name="password" type="password" required autocomplete="current-password"></label></div>
+    <button class="primary">Sign in</button>
+  </form>
+
+  <div id="app" hidden style="display:grid;gap:16px">
+    <section aria-labelledby="h-next">
+      <h2 id="h-next">Next cleanup</h2>
+      <p id="next"></p>
+      <p id="reminder" class="muted"></p>
+      <p id="problem" class="bad"></p>
+      <div class="row">
+        <button type="button" id="preview">Preview</button>
+        <button type="button" id="run" class="primary">Run now</button>
+        <button type="button" id="skip">Skip to next month</button>
+      </div>
+      <form class="row" id="postpone">
+        <label>Days <input name="days" type="number" min="1" max="27" value="3" required inputmode="numeric"></label>
+        <button>Postpone</button>
+      </form>
+      <p class="muted">After Skip or Postpone, a new reminder is sent before the run.</p>
+      <div id="found" aria-live="polite"></div>
+    </section>
+
+    <section aria-labelledby="h-disks"><h2 id="h-disks">Disks</h2><div id="disks"></div></section>
+
+    <section aria-labelledby="h-history">
+      <h2 id="h-history">History</h2>
+      <div class="scroll" tabindex="0" role="region" aria-labelledby="h-history">
+        <table><thead><tr><th>When</th><th>Trigger</th><th>Result</th></tr></thead><tbody id="history"></tbody></table>
+      </div>
+    </section>
+
+    <form class="card" id="settings">
+      <h2>Schedule and cleanup</h2>
+      <div class="grid">
+        <label>Day of month (1 to 28) <input name="day" type="number" min="1" max="28" required></label>
+        <label>Hour (0 to 23) <input name="hour" type="number" min="0" max="23" required></label>
+        <label>Reminder, days before <input name="reminder_days" type="number" min="0" max="14" required></label>
+        <label>Time zone <input name="timezone" required></label>
+        <label>Disk warning at % used <input name="threshold" type="number" min="50" max="99" required></label>
+      </div>
+      <label class="check"><input name="prune_images" type="checkbox"> Remove untagged images</label>
+      <label class="check"><input name="prune_cache" type="checkbox"> Remove build cache unused for 7 days</label>
+      <h2>Email</h2>
+      <div class="grid">
+        <label>SMTP host <input name="smtp_host" autocomplete="off"></label>
+        <label>SMTP port <input name="smtp_port" type="number" min="1" max="65535" required></label>
+        <label>Security <select name="smtp_security"><option value="starttls">STARTTLS</option><option value="ssl">SSL/TLS</option></select></label>
+        <label>SMTP user <input name="smtp_user" autocomplete="off"></label>
+        <label><span id="password-label">SMTP password</span> <input name="smtp_password" type="password" autocomplete="new-password"></label>
+        <label>Sender address <input name="mail_from" type="email"></label>
+        <label>Send to <input name="mail_to" type="email"></label>
+      </div>
+      <div class="row">
+        <button class="primary">Save settings</button>
+        <button type="button" id="test">Send test email</button>
+      </div>
+      <p class="muted">The test uses saved settings.</p>
+    </form>
+  </div>
+</main>
+
+<dialog id="confirm" aria-labelledby="h-confirm">
+  <h2 id="h-confirm">Run cleanup now?</h2>
+  <p>This permanently deletes the items switched on in settings. Volumes, containers and tagged images stay.</p>
+  <form method="dialog" class="row">
+    <button value="cancel" autofocus>Cancel</button>
+    <button value="run" class="primary">Delete now</button>
+  </form>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const KEY = "janitor-password";
+const stored = { get() { try { return sessionStorage.getItem(KEY) || ""; } catch { return ""; } },
+  set(v) { try { v ? sessionStorage.setItem(KEY, v) : sessionStorage.removeItem(KEY); } catch {} } };
+let password = stored.get(), timer = 0, filled = false;
+
+function say(text, bad = false) { $("message").textContent = text; $("message").className = bad ? "bad" : ""; }
+
+function view(name) { for (const id of ["setup", "login", "app"]) $(id).hidden = id !== name; }
+
+async function call(path, method = "GET", body) {
+  const response = await fetch("api/" + path, { method, body: body && JSON.stringify(body),
+    headers: { "Content-Type": "application/json", "X-Admin-Password": encodeURIComponent(password) } });
+  const data = await response.json().catch(() => ({}));
+  if (response.ok) return data;
+  if (response.status === 401) { signOut(); throw new Error("Wrong password."); }
+  const error = new Error(Array.isArray(data.detail) ? "Check the marked fields." : data.detail || "Request failed (" + response.status + ").");
+  error.fields = Array.isArray(data.detail) ? data.detail : [];
+  throw error;
+}
+
+function signOut() { password = ""; stored.set(""); clearTimeout(timer); filled = false; view("login"); }
+
+async function busy(button, work) {
+  button.disabled = true; button.setAttribute("aria-busy", "true"); say("");
+  try { await work(); }
+  catch (error) { say(error.message, true); markFields(error.fields || []); }
+  finally { button.disabled = false; button.removeAttribute("aria-busy"); }
+}
+
+function markFields(fields) {
+  for (const field of fields) {
+    const input = $("settings").elements[field.loc.at(-1)];
+    if (!input) continue;
+    input.setAttribute("aria-invalid", "true");
+    const note = document.createElement("span");
+    note.className = "bad error-note"; note.id = "error-" + input.name; note.textContent = field.msg.replace(/^Value error, /, "");
+    input.setAttribute("aria-describedby", note.id);
+    input.after(note);
+  }
+}
+
+function clearMarks() {
+  document.querySelectorAll(".error-note").forEach((n) => n.remove());
+  document.querySelectorAll("[aria-invalid]").forEach((i) => { i.removeAttribute("aria-invalid"); i.removeAttribute("aria-describedby"); });
+}
+
+const size = (n) => { if (n == null) return "unknown"; for (const u of ["B", "KB", "MB", "GB"]) { if (n < 1000) return n.toFixed(1) + " " + u; n /= 1000; } return n.toFixed(1) + " TB"; };
+const LABELS = { images: "Untagged images", cache: "Build cache" };
+const describe = (result, verb) => Object.entries(result).map(([k, v]) => v.error ? `${LABELS[k]}: failed: ${v.error}` : `${LABELS[k]}: ${v.count} ${verb}, ${size(v.bytes)}`);
+
+function element(tag, text, className) { const e = document.createElement(tag); e.textContent = text; if (className) e.className = className; return e; }
+
+function render(data) {
+  const { state, settings } = data;
+  const when = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: settings.timezone });
+  $("next").textContent = state.next_run ? `${when(state.next_run)} (${settings.timezone})` : "Not planned yet. It appears within a minute.";
+  $("reminder").textContent = data.running ? "A cleanup is running now." : state.reminded_at ? `Reminder sent ${when(state.reminded_at)}.` : "Reminder not sent yet.";
+  $("problem").textContent = state.error || "";
+  $("run").disabled = data.running;
+  $("disks").replaceChildren(...data.disks.map((d) => {
+    const box = document.createElement("div");
+    if (d.error) { box.append(element("p", `${d.name}: unreadable. ${d.error}`, "bad")); return box; }
+    const warn = d.percent >= settings.threshold;
+    box.append(element("p", `${d.name}: ${d.percent}% used, ${size(d.free)} free${warn ? " (above warning level)" : ""}`, warn ? "bad" : ""));
+    const meter = document.createElement("meter");
+    Object.assign(meter, { min: 0, max: 100, high: settings.threshold, optimum: 0, value: d.percent });
+    meter.setAttribute("aria-label", d.name + " use");
+    box.append(meter);
+    return box;
+  }));
+  $("history").replaceChildren(...(data.history.length ? data.history.map((h) => {
+    const row = document.createElement("tr");
+    const lines = describe(h.result, "removed");
+    if (h.email_error) lines.push("Result email failed: " + h.email_error);
+    row.append(element("td", when(h.at)), element("td", h.trigger), element("td", lines.join("; ") || "Nothing switched on."));
+    return row;
+  }) : [Object.assign(document.createElement("tr"), { innerHTML: '<td colspan="3">No runs yet.</td>' })]));
+  $("password-label").textContent = data.smtp_password_set ? "SMTP password (saved; empty keeps it)" : "SMTP password";
+  if (!filled) {  // never overwrite what the admin is typing
+    for (const [name, value] of Object.entries(settings)) {
+      const input = $("settings").elements[name];
+      if (input.type === "checkbox") input.checked = value; else input.value = value;
+    }
+    filled = true;
+  }
+}
+
+async function refresh() {
+  clearTimeout(timer);
+  const data = await call("overview");
+  view("app"); render(data);
+  timer = setTimeout(() => refresh().catch((e) => say(e.message, true)), data.running ? 5000 : 30000);
+}
+
+async function start() {
+  try {
+    const status = await (await fetch("api/status")).json();
+    if (!status.setup_done) return view("setup");
+    if (!password) return view("login");
+    await refresh();
+  } catch (error) { say(error.message, true); }
+}
+
+function onSubmit(id, work) {
+  $(id).addEventListener("submit", (event) => { event.preventDefault(); busy(event.submitter, () => work(new FormData(event.target))); });
+}
+
+onSubmit("setup", async (form) => {
+  await call("setup", "POST", Object.fromEntries(form));
+  password = form.get("password"); stored.set(password); $("setup").reset();
+  await refresh(); say("Password set. Fill in the email settings below.");
+});
+onSubmit("login", async (form) => { password = form.get("password"); await refresh(); stored.set(password); $("login").reset(); });
+onSubmit("postpone", async (form) => { await call("postpone", "POST", { days: Number(form.get("days")) }); await refresh(); say("Postponed."); });
+onSubmit("settings", async (form) => {
+  clearMarks();
+  const body = Object.fromEntries(form);
+  for (const input of $("settings").elements) {
+    if (input.type === "number") body[input.name] = Number(input.value);
+    if (input.type === "checkbox") body[input.name] = input.checked;
+  }
+  await call("settings", "PUT", body);
+  $("settings").elements.smtp_password.value = ""; filled = false;
+  await refresh(); say("Settings saved.");
+});
+
+$("test").onclick = (e) => busy(e.target, async () => { await call("test-email", "POST"); say("Test email sent."); });
+$("skip").onclick = (e) => busy(e.target, async () => { await call("skip", "POST"); await refresh(); say("Skipped to next month."); });
+$("preview").onclick = (e) => busy(e.target, async () => {
+  $("found").replaceChildren(element("p", "Asking Docker. This can take a few minutes.", "muted"));
+  try {
+    const lines = describe(await call("preview", "POST"), "found");
+    $("found").replaceChildren(...(lines.length ? [element("p", "Would be removed (upper estimate):"), ...lines.map((l) => element("p", l))] : [element("p", "Both cleanup types are switched off.")]));
+  } catch (error) { $("found").replaceChildren(); throw error; }
+});
+$("run").onclick = () => { $("confirm").returnValue = ""; $("confirm").showModal(); };
+$("confirm").addEventListener("close", () => {
+  if ($("confirm").returnValue === "run") busy($("run"), async () => { await call("run", "POST"); say("Cleanup started."); }).then(() => refresh().catch((e) => say(e.message, true)));
+});
+
+start();
+</script>
+</body>
+</html>

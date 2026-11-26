@@ -1,0 +1,20 @@
+name: dockerjanitor
+
+services:
+  docker_janitor:
+    build: .
+    image: dockerjanitor:latest
+    restart: unless-stopped
+    ports: ["0.0.0.0:26510:26510"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - dockerjanitor_data:/data  # settings and history
+      - dockerjanitor_key:/key  # key that encrypts the SMTP password
+      - /var/run/docker.sock:/var/run/docker.sock  # root-equivalent: keep this service on the LAN
+      # Empty probe folders: they show how full each disk is without exposing its files.
+      - /DATA/.diskprobe:/disks/system:ro
+      - /media/HDD320-1/.diskprobe:/disks/backup:ro
+
+volumes:
+  dockerjanitor_data:
+  dockerjanitor_key:
